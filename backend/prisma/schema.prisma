@@ -12,21 +12,82 @@ datasource db {
   provider = "postgresql"
 }
 
+model User{
+  id          String     @id @default(uuid())
+  username    String   @unique
+  passwordHash    String   
+  active      Boolean  @default(true)
+  deleted     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-model User {
-  id              String   @id   @default(uuid())
-  username        String   @unique
-  password        String
-}
-
-model Order {
-  id            String    @id    @default(uuid())
-  name          String
-  symbol        String    @unique
-}
-
-model Fill {
+  orders      Order[]
+  fills       Fill[]
   
 }
 
-model Stock {}
+model Asset{
+  id          String    @id @default(uuid())
+  title       String    @unique
+  imgurl      String?
+  symbol      String    @unique
+  decimals    Int
+  blocked     Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+}
+
+enum Side{
+  BUY
+  SELL
+}
+
+enum OrderType{
+  LIMIT
+  MARKET
+}
+
+enum OrderStatus{
+  OPEN
+  FILLED
+  PARTIALLY_FILLED
+  CANCELED
+}
+
+model Order{
+  id        String        @id @default(uuid())
+  userId    String
+  side      Side
+  type      OrderType
+  assetId   String
+  price     BigInt?    //market orders may not have the prices
+  qty       BigInt
+  fillQty   BigInt        @default(0)
+  status    OrderStatus   @default(OPEN)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  fills      Fill[]
+  user      User          @relation(fields: [userId],references: [id])
+}
+
+enum FillType{
+  MAKER
+  TAKER
+}
+
+model Fill{
+  id         String @id @default(uuid())
+  qty        BigInt
+  side       Side
+  type       FillType
+  userId     String
+  price      BigInt
+  assetId    String
+  orderId    String
+  createdAt  DateTime @default(now())
+
+  user        User    @relation(fields: [userId], references: [id])
+  order       Order   @relation(fields:[orderId],references: [id])
+
+}
