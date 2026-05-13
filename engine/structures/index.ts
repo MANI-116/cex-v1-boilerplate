@@ -116,7 +116,7 @@ export class OrderList{
        }
 }
 
-class OrderBook{
+export class OrderBook{
     private asks:Map<number,PriceLevelObject>
     private bids:Map<number,PriceLevelObject>
     constructor(private title:string){
@@ -164,7 +164,7 @@ export class PriceLevelObject{
 
 
 
-class Bidtree{
+export class BidTree{
     public topPrice:bigint =0n;
     private arr:bigint[]=[];
 
@@ -261,10 +261,115 @@ class Bidtree{
 
 
 }
-class BidTrees{
-    public map:Map<string,Bidtree>;
+export class BidTrees{
+    public map:Map<string,BidTree>;
     constructor(){
-         this.map= new Map<string,Bidtree>()
+         this.map= new Map<string,BidTree>()
     }
     
 }
+
+export class AskTree{
+    public topPrice:bigint =0n;
+    private arr:bigint[]=[];
+
+    getHighestBid(){
+        let top = this.arr[this.arr.length-1]
+        if(top)
+        return top;
+    return 0n;
+    }
+    popHighestBid(){
+        const res = this.arr.pop();
+        this.topPrice = this.getHighestBid();
+        return res;
+    }
+    findInsertPlace(left:number,right:number,target:bigint):number{
+
+        //no element
+
+        if(left > right) return -1;
+        //single element
+        if(left === right && left < this.arr.length){
+            if(target > this.arr[left]!){
+                return left-1;
+            }else if(target < this.arr[left]!){
+                return left+1;
+
+            }else{
+
+                return left;
+            }
+        }
+
+        //multiple elements
+        let middle = left + ((right-left)/2);
+
+        if(this.arr[middle] === target) return middle;
+        if(this.arr[middle]! < target) return this.findInsertPlace(left,middle-1,target);
+        
+        return this.findInsertPlace(middle+1,right,target);
+
+    }
+
+    addPrice(price:bigint){
+        if(this.arr.length== 0){
+            this.arr.push(price);
+        }
+        //find the index
+        let index = this.findInsertPlace(0,this.arr.length,price)
+        if(index === -1) return null;
+        //present bid is the highest bid
+        if(index === this.arr.length){
+            this.arr.push(price);
+            this.topPrice = price;
+            return;
+
+        }
+        if(this.arr[index] === price){
+            return
+        }
+        
+        this.arr.push(price);//to add new space
+        //shift remaining elements to right starting from index
+
+        for(let i = this.arr.length-2;i >= index;i--){
+            this.arr[i+1]!= this.arr[i]!;
+        }
+        this.arr[index]=price;
+
+
+    }
+
+    findPrice(target:bigint):boolean{
+        let index = this.findInsertPlace(0,this.arr.length-1,target);
+        if(this.arr[index] === target) return true;
+        return false;
+    }
+
+    deletePrice(target:bigint){
+        const index = this.findInsertPlace(0,this.arr.length-1,target);
+        if(index === -1) return;
+        if(this.arr[index] != target) return;
+
+        //every price after the index needs shift apostion left
+        for(let i = index ; i<this.arr.length-1;i++){
+            this.arr[i] = this.arr[i+1]!;
+        }
+        this.arr.pop();
+        this.topPrice = this.getHighestBid();
+        return;
+
+    }
+}
+
+
+export class AskTrees{
+    public map:Map<string,AskTree>;
+    constructor(){
+         this.map= new Map<string,AskTree>()
+    }
+    
+}
+
+
