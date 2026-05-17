@@ -1,22 +1,27 @@
 import express from "express";
-import { prisma} from "@lib/prisma"
+import { prisma} from "@repo/db"
 import * as payloadType  from "@defTypes/payloadTypes"
 import * as bcrypt from "bcrypt"
 import { createToken } from "@lib/auth"
 import cookieParser from "cookie-parser";
 import Authenticate from "./middleware/authenticate";
+import { createClient} from "redis"
+import { untilGotResponse, workerInit } from "./lib/responseSettler"
+
+
+const publishClient= createClient()
+publishClient.on("error",(e)=>console.log("error occured",e));
+await publishClient.connect();
+workerInit();
+
+
+
 const app = express();
 app.use(cookieParser());
 app.use(express.json());
 
-const BALANCES = {
 
-}
 
-const ORDERBOOKS = {
-    SOL: {},
-    BTC: {}
-}
 
 app.post("/signup", async(req, res) => {
 
@@ -52,10 +57,10 @@ app.post("/signup", async(req, res) => {
 
         console.log("error occured while signup-",error);
         if(error.name)
-        res.status(400).send({error:"constraints failed",message:"please send correct payload",errlog:error} );
+       return res.status(400).send({error:"constraints failed",message:"please send correct payload",errlog:error} );
         
         console.log(error);
-        res.status(500).send({error:"exception",message:"something went wrong"})
+        return res.status(500).send({error:"exception",message:"something went wrong"})
         
     }
 
@@ -93,20 +98,20 @@ app.post("/signin", async (req, res) => {
         console.log("token---",token);
 
         if(token.error){
-            res.status(400).send({...token})
+            return res.status(400).send({...token})
         }
 
         //send token
-        res.status(201).cookie('Authorization',`${token.data}`).send({"message":"cookie has been set"})
+        return res.status(201).cookie('Authorization',`${token.data}`).send({"message":"cookie has been set"})
         
         
     } catch (error:any) {
          console.log("error occured while signup-",error);
         if(error.name)
-        res.status(400).send({error:"constraints failed",message:"please send correct payload",errlog:error} );
+        return res.status(400).send({error:"constraints failed",message:"please send correct payload",errlog:error} );
         
         console.log(error);
-        res.status(500).send({error:"exception",message:"something went wrong"})
+         return res.status(500).send({error:"exception",message:"something went wrong"})
         
     }
 
@@ -134,9 +139,31 @@ app.post("/signin", async (req, res) => {
 // 50.01
 
 // 500001
-app.post("/order",Authenticate, (req, res) => {
 
-    res.send("test successfull");
+
+app.post("/order", async (req, res) => {
+    try {
+        
+        const identifier = "12345678"
+        const order = await payloadType.Order.parseAsync(req.body);
+        console.log("order--",order);
+        const response = await  publishClient.lPush("insertQueue",JSON.stringify({payload:{...order},correlationId:identifier,type:"create_order"}));
+            console.log("response from redis-",response);
+        const filled = await untilGotResponse(identifier);
+        console.log("response from the engine",filled);
+       return  res.send({identifier,filled});
+    } catch (error:any) {
+
+        console.log("error in order--",error);
+         if(error.name)
+        return res.status(400).send({error:"constraints failed",message:"please send correct payload",errlog:error} );
+        
+        console.log(error);
+         return res.status(500).send({error:"exception",message:"something went wrong"})
+        
+
+        
+    }
 
 })
 /*

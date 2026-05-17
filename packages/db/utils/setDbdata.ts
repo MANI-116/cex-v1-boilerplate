@@ -1,6 +1,6 @@
 
 import "dotenv/config";
-import { prisma } from "./prisma";
+import { prisma } from "../src/index";
 
 const assets = [
   {
@@ -76,5 +76,5 @@ async function seed() {
 seed()
   .catch(console.error)
   .finally(async () => {
-    await prisma.$disconnect();
+    console.log("completed")
   });

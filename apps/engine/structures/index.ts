@@ -1,12 +1,49 @@
 export class Order{
 
-    filled:number = 0;
-    constructor(public orderId:string, public assetTitle:string,public qty:number,public price:BigInt,public side:"BUY"|"SELL"){
+    filled:bigint = 0n;
+    constructor(public orderId:string, public assetId:string,public qty:bigint,public price:bigint,public side:"BUY"|"SELL",public userId:string){
 
     }
 
 
 
+}
+
+export interface EngineRequest {
+  correlationId: string;
+  responseQueue: string;
+  type:
+    | "create_order"
+    | "get_depth"
+    | "get_user_balance"
+    | "get_order"
+    | "cancel_order";
+  payload: Record<string, unknown>;
+}
+
+// interface EngineRequest {
+//   correlationId: string;
+//   responseQueue: string;
+//   type:
+//     | "create_order"
+//     | "get_depth"
+//     | "get_user_balance"
+//     | "get_order"
+//     | "cancel_order";
+//   payload: Record<string, unknown>;
+// }
+export class AssetBalance{
+  
+    constructor(public qty:bigint,public lockedQty:bigint){
+
+    }
+    
+}
+export type Balance = {
+    walletBalance:bigint,
+    balanceAvailable:bigint,
+    locked:bigint,
+    assets:Map<string,AssetBalance>
 }
 
 export class OrderNode{
@@ -20,108 +57,126 @@ export class OrderNode{
 }
 
 export class OrderList{
-    private head:OrderNode|null = null;
-    private tail:OrderNode|null = null;
+    private head:OrderNode;
+    private tail:OrderNode;
+    private length:number=0;
 
-
+    constructor(order:Order){
+        let orderNode:OrderNode = new OrderNode(order);
+        this.head = orderNode;
+        this.tail = orderNode;
+        this.length++;
+    }
     getTopOrder(){
-        if(this.head)
         return this.head.order;
-        
-        return null;
 
     }
-    constructor(){
-
+    getTotalLength(){
+        return this.length;
     }
-    append(order:OrderNode){
+ 
+    append(orderNode:OrderNode){
         //empty list
-        if( this.head == null && this.tail == null){
-            this.head = order;
-            this.tail = order;
-            return;
-        }
-
-        //with some nodes
+        //there never be an emptyorder list at a pricelevel
         //we attach to tail
 
-        order.left = this.tail;
-        if(this.tail)
-
-        this.tail.right = order;
-       this.tail = order;
+        orderNode.left = this.tail;
+        this.tail.right = orderNode;
+       this.tail = orderNode;
+       this.length++;
        return; 
 
 
     }
 
-    remove(order:OrderNode){
-        //list empty
-        if( this.head === null && this.tail === null){
-            return;
-        }
-
-        //start
+    remove(orderNode:OrderNode):{isDeleted:boolean,error?:string}{
 
             //single node
-            if( this.head == order && this.tail == order){
-                this.head = null;
-                this.tail = null;
-                return;
+            if( this.head === orderNode && this.tail === orderNode){
+                return {isDeleted:false,error:"singleNode"}
             }
             //startnode
-            if(this.head === order){
-                let rn:OrderNode|null = order.right;
-                if(rn){
-                    rn.left = null;
-                }
-                order.left = null;
+            if(this.head === orderNode ){
+                if(orderNode.right === null ||this.length === 1 ) return {isDeleted:false,error:"singleNode"}
+                
+                let rn:OrderNode = orderNode.right;
+                
+                rn.left = null;
+                orderNode.left = null;
+                orderNode.right = null;
                 this.head = rn;
-                return;
+                this.length--;
+                return {isDeleted:true}
                 
             }
             //endnode
 
-            if( this.tail === order){
-                let ln:OrderNode|null = order.left;
-                order.left = null;
-                if(ln){
-
-                    ln.right = null;
-                }
-
+            if( this.tail === orderNode && orderNode.left){
+                let ln:OrderNode= orderNode.left;
+                orderNode.left = null;
+                ln.right = null;
                 this.tail = ln;
-                return;
+                this.length--;
+                return {isDeleted:true};
 
             }
             //middle node
-            let ln = order.left;
-            let rn = order.right;
+            let ln = orderNode.left;
+            let rn = orderNode.right;
             if(ln){
                 ln.right = rn;
             }
             if(rn){
                 rn.left = ln;
             }
-            order.left = null;
-            order.right = null;
+            orderNode.left = null;
+            orderNode.right = null;
+            this.length--;
+           return {isDeleted:true}
      
 
     }
 
     pop(){
-        if(this.head){
-            this.remove(this.head)
-        }
+      
+            return this.remove(this.head)
+        
        }
+    top(){
+        if(this.head){
+            return this.head.order;
+        }
+    }
+    topOrderNode(){
+        return this.head;
+    }    
 }
 
 export class OrderBook{
-    private asks:Map<number,PriceLevelObject>
-    private bids:Map<number,PriceLevelObject>
+    public asks:Map<bigint,PriceLevelObject>
+    public bids:Map<bigint,PriceLevelObject>
     constructor(private title:string){
-        this.asks = new Map<number,PriceLevelObject>();
-        this.bids = new Map<number,PriceLevelObject>();
+        this.asks = new Map<bigint,PriceLevelObject>();
+        this.bids = new Map<bigint,PriceLevelObject>();
+
+    }
+    addBidLevel(price:bigint,order:Order){
+        const priceLevel = new PriceLevelObject(order)
+        this.bids.set(price,priceLevel);
+        return priceLevel;
+    }
+    addAskLevel(price:bigint,order:Order){
+        const priceLevel = new PriceLevelObject(order);
+        this.asks.set(price,priceLevel)
+        return priceLevel;
+    }
+    removeBidLevel(price:bigint){
+        const isDeleted = this.bids.delete(price);
+        return isDeleted;
+
+    }
+    removeAskLevel(price:bigint){
+        const isDeleted = this.asks.delete(price);
 
     }
 
@@ -129,11 +184,11 @@ export class OrderBook{
 }
 
 export class PriceLevelObject{
-    private totalQty:number = 0;
-    private orders:OrderList|null = null;
+    private totalQty:bigint = 0n;
+    public orders:OrderList ;
     
-    constructor(){
-        this.orders = new OrderList();
+    constructor(order:Order){
+        this.orders = new OrderList(order);
     }
     addOrder(order:Order){
         let orderNode = new OrderNode(order);
@@ -141,6 +196,7 @@ export class PriceLevelObject{
             this.orders.append(orderNode);
             this.totalQty += order.qty;
         }
+        return orderNode;
     }
 
     /*
@@ -148,6 +204,7 @@ export class PriceLevelObject{
     we need to give top order ,so that it decides to modiy or delete after the completion of the fill
     --we need getTopOrder
     */
+  
    getTopOrder(){
     if(this.orders)
     return this.orders.getTopOrder();
@@ -212,7 +269,7 @@ export class BidTree{
             this.arr.push(price);
         }
         //find the index
-        let index = this.findInsertPlace(0,this.arr.length,price)
+        let index = this.findInsertPlace(0,this.arr.length-1,price)
         if(index === -1) return null;
         //present bid is the highest bid
         if(index === this.arr.length){
@@ -273,15 +330,15 @@ export class AskTree{
     public topPrice:bigint =0n;
     private arr:bigint[]=[];
 
-    getHighestBid(){
+    getMinAsk(){
         let top = this.arr[this.arr.length-1]
         if(top)
         return top;
     return 0n;
     }
-    popHighestBid(){
+    popMinAsk(){
         const res = this.arr.pop();
-        this.topPrice = this.getHighestBid();
+        this.topPrice = this.getMinAsk();
         return res;
     }
     findInsertPlace(left:number,right:number,target:bigint):number{
@@ -317,9 +374,9 @@ export class AskTree{
             this.arr.push(price);
         }
         //find the index
-        let index = this.findInsertPlace(0,this.arr.length,price)
+        let index = this.findInsertPlace(0,this.arr.length-1,price)
         if(index === -1) return null;
-        //present bid is the highest bid
+        //present ask is the minimum
         if(index === this.arr.length){
             this.arr.push(price);
             this.topPrice = price;
@@ -334,7 +391,7 @@ export class AskTree{
         //shift remaining elements to right starting from index
 
         for(let i = this.arr.length-2;i >= index;i--){
-            this.arr[i+1]!= this.arr[i]!;
+            this.arr[i+1] = this.arr[i]!;
         }
         this.arr[index]=price;
 
@@ -357,7 +414,7 @@ export class AskTree{
             this.arr[i] = this.arr[i+1]!;
         }
         this.arr.pop();
-        this.topPrice = this.getHighestBid();
+        this.topPrice = this.getMinAsk();
         return;
 
     }
@@ -371,5 +428,7 @@ export class AskTrees{
     }
     
 }
+
+
 
 
