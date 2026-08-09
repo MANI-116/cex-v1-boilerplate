@@ -1,158 +1,131 @@
-# Spot Exchange
+# Spot Exchange Engine
 
-A TypeScript/Bun implementation of a centralized spot exchange, built from the matching engine upward.
+A TypeScript/Bun implementation of a centralized spot-exchange prototype, built to explore the core mechanics of an exchange rather than hide them behind a framework.
 
-> **Status:** Engineering prototype — not production-ready for real-money trading.
-
-## What this project demonstrates
-
-- User authentication and account setup
-- Order validation with Zod
-- Spot asset and balance management
-- Bid/ask order books
-- Price-level data structures
-- Limit-order matching
-- FIFO order queues within price levels
-- Asynchronous backend ↔ engine communication using Redis
-- Correlation-based response handling
-- Deterministic in-memory engine state
+> **Status:** Engineering prototype. Not production-ready and not suitable for real-money trading.
 
 ## Architecture
 
 ```text
-Client
-  │
-  │ HTTP
-  ▼
-Backend API
-  │
-  │ Command + correlationId
-  ▼
+HTTP Client
+    │
+    ▼
+Express API
+    │  command + correlationId
+    ▼
 Redis
-  │
-  ▼
+    │
+    ▼
 Matching Engine
-  │
-  ├── Order Book
-  │    ├── Bid Tree
-  │    └── Ask Tree
-  │
-  ├── Orders
-  ├── User Balances
-  └── Matching Logic
-  │
-  │ Engine Response
-  ▼
-Redis Response Queue
-  │
-  ▼
-Backend Response Worker
-  │
-  │ correlationId
-  ▼
-HTTP Response
+    ├── Order Book per asset
+    ├── Bid / Ask price structures
+    ├── FIFO orders per price level
+    ├── In-memory balances
+    └── Matching + fill processing
+    │
+    ▼
+PostgreSQL
+    └── Users / Orders / Fills
+    │
+    ▼
+Redis response queue
+    │
+    ▼
+Backend response worker
+    └── resolves the waiting request
 ```
 
-The matching engine is kept separate from the HTTP layer. The API publishes a command and waits asynchronously for the corresponding engine response instead of embedding matching logic inside request handlers.
+The important design boundary is the **matching engine vs. API**. HTTP handlers publish commands; the engine owns order-book state and matching decisions.
 
 ## Matching Engine
 
-The core of the project is the limit-order matching engine.
-
-Orders are organized by **side → price level → FIFO queue**:
+The order book is represented as:
 
 ```text
-                 Order Book
-
-       Bids                         Asks
-        │                            │
-     Bid Tree                     Ask Tree
-        │                            │
-   Price Levels                 Price Levels
-        │                            │
-   FIFO Orders                  FIFO Orders
+Asset
+ ├── Bids → price levels → FIFO orders
+ └── Asks → price levels → FIFO orders
 ```
 
-The engine maintains references to active orders so that order-book operations can efficiently locate and update orders.
+Orders use `BigInt` quantities and prices to avoid floating-point arithmetic in financial state. Each price level maintains an intrusive doubly-linked FIFO list, while separate price structures track executable levels. Orders are also indexed by ID so the engine can retain direct references to active order nodes.
 
-### Matching principle
+The engine supports the core limit-order flow: validate an order, lock the required balance/asset quantity, look for executable liquidity, execute fills, update order state, and place remaining quantity on the book.
 
-For a limit order, the engine evaluates the opposite side of the book and executes eligible orders according to price priority, while preserving FIFO ordering at the same price level.
+## Backend
 
-This project was deliberately built around the data structures required by a matching engine rather than treating the order book as a simple array.
+The Express service currently provides the initial exchange API surface:
 
-## Request lifecycle
+- `POST /signup`
+- `POST /signin`
+- `POST /order`
+- planned order lookup/cancellation, depth, fills, and balance endpoints
 
-```text
-POST /order
-     │
-     ▼
-Validate payload
-     │
-     ▼
-Generate correlation ID
-     │
-     ▼
-Publish command
-     │
-     ▼
-Redis
-     │
-     ▼
-Matching Engine
-     │
-     ├── Validate engine state
-     ├── Find executable orders
-     ├── Match / partially fill
-     └── Update balances + book
-     │
-     ▼
-Response Queue
-     │
-     ▼
-Response Worker
-     │
-     ▼
-Resolve pending request
-     │
-     ▼
-HTTP response
-```
+Authentication uses bcrypt password hashing and JWT-based authentication cookies. Request payloads are validated with Zod before being sent toward the engine.
 
-## Engineering focus
+## Persistence
 
-The purpose of this project was to understand the foundations of exchange infrastructure:
+PostgreSQL is modeled through Prisma with entities for:
 
-- How an order book is represented in memory
-- Why price-time priority matters
-- How FIFO queues interact with price levels
-- How matching mutates balances and orders
-- How an API can communicate with an isolated engine
-- How correlation IDs connect asynchronous processing back to requests
+- Users
+- Assets
+- Orders
+- Fills
+
+The database records durable order/fill state while the matching engine keeps its active book and balance state in memory.
+
+## Why this project exists
+
+This project was built to understand the engineering problems underneath a CEX:
+
+- price-time priority
+- FIFO matching
+- price-level data structures
+- partial fills
+- balance locking
+- asynchronous engine communication
+- correlation of asynchronous responses with HTTP requests
+- separating hot in-memory state from durable persistence
+
+It is intentionally lower-level than a typical CRUD trading application.
+
+## Known limitations
+
+This is an exploratory implementation, so several production concerns remain intentionally unresolved or incomplete: durable engine recovery, atomic database/state transitions, robust concurrency control, complete order cancellation/query APIs, market-order semantics, distributed failure handling, observability, and comprehensive integration/load testing.
+
+These limitations are part of the project's learning trajectory and should not be interpreted as production guarantees.
 
 ## Tech Stack
 
-- **TypeScript**
-- **Bun**
-- **Redis**
-- **Express**
-- **Zod**
-- **Prisma**
-- **PostgreSQL**
+- TypeScript
+- Bun
+- Express
+- Redis
+- PostgreSQL
+- Prisma
+- Zod
+- bcrypt / JWT
 
-## Evolution
+## Repository Structure
 
-This project is the earlier **spot-exchange implementation** that led into my later perpetual-futures exchange work, [PerpX](https://github.com/MANI-116/Centralized-Exchange-Perpetual-futures-perps-).
+```text
+apps/
+├── backend/      # HTTP API and response handling
+└── engine/       # Matching engine and order-book structures
 
-PerpX extends the exchange architecture into leveraged perpetual futures with positions, margin, liquidation, event-driven projections, WebSockets, snapshots, and crash recovery.
+packages/
+└── db/           # Prisma schema/client
+```
 
 ## Running locally
 
+The repository uses Bun workspaces.
+
 ```bash
 bun install
-bun run index.ts
 ```
+
+Configure the required PostgreSQL/Redis environment variables, then start the backend and engine according to their package scripts.
 
 ## Disclaimer
 
-This is an educational engineering project. It is not suitable for custody, real-money trading, or production financial use.
+Educational software only. Do not use this implementation for custody, real-money trading, or production financial systems.
